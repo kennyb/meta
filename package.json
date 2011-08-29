@@ -1,0 +1,28 @@
+{
+    "name": "playbox"
+  , "version": "3.0.0"
+  , "description": "abstract web programming"
+  , "homepage": "http://playbox.cc"
+  , "keywords": ["poem", "playbox"]
+  , "author": "kenny <kenny@gatunes.org>"
+  , "contributors": [
+        { "name": "Kenny Bentley del Sofá", "email": "kenny@gatunes.com" }
+      , { "name": "Kenneth 'Volcrum' Bentley", "email": "kenny@unhosted.org" }
+    ]
+  , "repository":{
+        "type": "git"
+      , "url": "https://github.com/kennyb/playbox.git"
+    }
+  , "dependencies": {
+        "mime": "1.2.2"
+      , "now": "0.7.4"
+      , "coffee-script": "1.1.2"
+    }
+  , "devDependencies": {
+        "expresso": "0.7.7"
+      , "should": "0.0.4"
+      , "assertvanish": "0.0.3-1"
+    }
+  , "main": "index"
+  , "engines": { "node": ">= 0.4.0" }
+}
