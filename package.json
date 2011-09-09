@@ -4,7 +4,7 @@
   , "description": "abstract web programming"
   , "homepage": "http://playbox.cc"
   , "keywords": ["poem", "playbox"]
-  , "author": "kenny <kenny@gatunes.org>"
+  , "author": "kenny <kenny@gatunes.com>"
   , "contributors": [
         { "name": "Kenny Bentley del Sofá", "email": "kenny@gatunes.com" }
       , { "name": "Kenneth 'Volcrum' Bentley", "email": "kenny@unhosted.org" }
@@ -17,6 +17,7 @@
         "mime": "1.2.2"
       , "now": "0.7.4"
       , "coffee-script": "1.1.2"
+      , "coco": "0.6.2"
     }
   , "devDependencies": {
         "expresso": "0.7.7"

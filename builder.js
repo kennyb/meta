@@ -160,7 +160,7 @@ function copy(src, dest, opts, callback) {
 						cp_callback = function(err) {
 							if(!err && global.mode === 'dev') {
 								console.log("watching", src, "...");
-								Fs.watchFile(src, watch_func);
+								Fs.watchFile(src, {persistent: 0, interval: 500}, watch_func);
 							}
 
 							if(typeof callback === 'function') {

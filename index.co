@@ -1,0 +1,488 @@
+/*
+###
+playbox v3 - abstract
+
+server lists poems as small 'programs'
+
+each poem is a simple xml file:
+<poem id="bookshelf">
+	<style>
+		<!-- {{less}}/css style rules -->
+		
+	</style>
+	
+	<screen [minwidth="1024"] [minheight="768"] [maxwidth="1600"] [maxheight="1200"]>
+		the basic screen of the 'poem' - can be defined multiple times too, representing different screen sizes (mobile, desktop, etc.)
+	</screen>
+	
+	<panel id="mybooks" [data="/books"]>
+		
+	</panel>
+	
+	<panel id="book" [data="/book/$1"]>
+		<!-- simple book entry. this is styled using the above styles -->
+		<title>#{data.title || "unknown"}</title>
+		<year>#{data.year || "unknown"}</year>
+		<desc>#{data.desc || "no description"}</desc>
+	</panel>
+	
+	<part id="Book" data="/book">
+		title: "unknown"
+	</part>
+	
+	<include file="panels/*" />
+	
+	<function id="ring_doorbell">
+		
+	</function>
+</poem>
+
+TASKS:
+ # reload the templates on the server when there are changes to the file
+ # bind to the event, and reprocess the templates when the event fires 'rv' http://nowjs.com/doc/now
+ # do a generic css configuration panel (to serve generic css and use those templates)
+
+MISC TASKS:
+ # make and add a favicon.ico to the public directory
+
+TODO:
+ - add 'trailers' to the server, with a hash of the poem, to verify its identity - response.addTrailers(headers)
+ 
+	# demo hacker news: http://api.ihackernews.com/
+	# add this to styles: https://github.com/khoomeister/coffee-css
+	# make graphs like this: http://christopheviau.com/d3_tutorial/
+	# physical version of the playbox http://www.raspberrypi.org/
+	# keybindings - https://github.com/madrobby/keymaster
+	# crypto stuff - http://cryptico.wwwtyro.net/
+	# copy a lot of the UI from http://about.me/
+	# maybe do dom tests with https://github.com/tmpvar/jsdom
+	# css forms: https://github.com/nateps/impress
+	# add unselectable property to templates: onselectstart="return false"
+###
+*/
+
+http = require 'http'
+Fs = require 'fs'
+Url = require 'url'
+QueryString = require 'querystring'
+Path = require 'path'
+Vm = require 'vm'
+Module = require 'module'
+Builder = require './builder'
+Mime = require 'mime'
+nowjs = require 'now'
+#CoffeeScript = require 'coffee-script'
+whiskey = require './node_modules/coco'
+sax = require 'sax'
+
+
+Mixin = (target, source) ->
+	if typeof source is "object"
+		for own key in source
+			target[key] = source[key]
+	target
+
+
+#childOf Panel, Element
+childOf = (child, parent) ->
+	while child = child.superclass
+		if child.displayName is parent.displayName
+			return true
+	false
+
+String::replace_all = (f, r) ->
+	str = @
+	until str.indexOf f is -1
+		str = str.replace f, r
+	str
+	
+
+class Playbox
+	poems: {}
+	(port) ->
+		# get all poems
+		Fs.readdir "poems", (err, poems) ~>
+			if err
+				if err.code is 'ENOENT'
+					Builder.mkdirs('poems')
+					return
+				else
+					throw err
+
+			for poem of poems
+				@load_poem poem, "poems/#{poem}/#{poem}.co", {watch: true}
+				
+		#start the server
+		@server = http.createServer (req, res) ~>
+			c = new Connection req, res
+			c.start()
+			
+		@server.listen port, (err) ->
+			if err then throw err
+			console.log "Playbox listening listening on #{port}"
+		
+		@everyone = nowjs.initialize @server
+		nowjs.on 'connect', ~>
+			console.log "connected: #{@everyone.now.poem}"
+		
+		@everyone.now.hello = (lala) ->
+			console.log "lala: #{lala}"
+
+	load_poem: (id, path, opts = {}, callback) ->
+		console.log "loading #{id} #{path}"
+		Fs.readFile path, 'utf8', (err, poem_file) ~>
+			if !err and poem_file
+				@everyone.now[id] = {}
+				@poems[id] = new Poem @everyone.now[id], path
+				if opts.watch
+					Fs.watchFile path, {persistent: false, interval: 200}, (cur, prev) ~>
+						@load_poem id, path, {}, (err) ->
+							console.log 'reloaded poem: #{id}'
+			else if typeof callback is 'function' then callback err
+	
+
+#################################
+
+class Connection
+	headers: {}
+	(req, res) ->
+		@req = req
+		@res = res
+		@ret = 200
+		@headers["Content-Type"] = "application/xhtml+xml; charset=UTF-8"
+		
+	start: ->
+		@url = Url.parse @req.url
+		@get = QueryString.parse @url.query
+		path = QueryString.unescape @url.pathname
+		if path is '/'
+			@res.write playbox.poems.poem.toString playbox.poems.poem
+			@end 200
+		else
+			# static_file_url = path;
+			poem_name = path.substr 1
+			poem_path = '/'
+			poem_path_offset = poem_name.indexOf '/'
+			if poem_path_offset is not -1
+				poem_path := if poem_path_offset is poem_name.length-1 then '/' else poem_name.substr poem_path_offset
+				poem_name := poem_name.substr 0, poem_path_offset
+			
+				if poem_path is not "/" and poem_path.length > 1
+					poem_path := poem_path.substr 1
+			
+			poem = playbox.poems[poem_name]
+			console.log "#{path}: #{poem_name} :: #{poem_path}"
+			if poem_path is '/'
+				@headers['Cache-Control'] = 'private, max-age=0'
+				@headers['Expires'] = '-1'
+				@headers['X-XSS-Protection'] = '1; mode=block'
+				if poem?
+					@end 200, poem.toString(poem_path)
+				else
+					mime = Mime.lookup poem_name
+					@file mime, "public/#{poem_name}"
+			else
+				mime = Mime.lookup poem_path
+				@file mime, "poems/#{poem_name}/public/#{poem_path}"
+		
+	end: (ret, output) ->
+		if @sent is not true
+			console.log "conn.end #{ret} #{output.length + ': '+ output.substr 0, 100}..."
+			@sent = true
+			@headers['Content-Length'] = Buffer.byteLength output
+			@res.writeHead ret || @ret, @headers
+			@res.end output
+		
+	file: (mime, file_path, callback) ->
+		console.log "file: #{file_path} (#{mime})"
+		@sent = true
+		Fs.stat file_path, (err, stat) ~>
+			if err
+				@sent = false
+				if err.code is \ENOENT and (typeof callback is not 'function' or callback 404)
+					@end 404, "404! - '#{file_path}' does not exist"
+				else if typeof callback is not 'function' or callback 500
+					@end 500, "#{e.message}\n#{e.stack}"
+				return
+				
+			if stat.isFile!
+				@sent = true
+				# Stream a single file.
+				@headers['Content-Length'] = stat.size;
+				@headers['Content-Type'] = mime;
+				@res.writeHead(200, @headers);
+
+				@offset = 0
+				stream = Fs.createReadStream file_path, {
+					flags: 'r'
+					encoding: 'binary'
+					mode: '666'
+					bufferSize: 4096
+				}
+				
+				stream.on 'data', (chunk) ~>
+					#buffer.write(chunk, offset, 'binary');
+					@res.write chunk, 'binary'
+					@offset += chunk.length
+				
+				stream.on 'close', ~>
+					if typeof callback is 'function' then callback!
+					@res.end!
+				
+				stream.on 'error', (err) ~>
+					if typeof callback is 'function' then callback err
+					@res.end!
+					# Sys.error(err)
+			else
+				@sent = false
+				@end 500, "#{file_path} is not a file"
+		
+	
+#################################
+
+class Screen
+	style: ''
+	toString: ->
+		# technically, this is a dev workspace... cause all the script compilation is done in the browser
+		# obviously in the future, when poems are distributed, they will be compiled for fast delivery
+		# (also because some devices won't be able to compile, and will need boring html/css/js files)
+		#console.log 'style', @style!
+		"""
+		<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+		<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+			<head>
+				<title>#{@title}</title>
+				<link rel="stylesheet" type="text/css" href="/css/reset.css" media="screen" />
+				<link rel="stylesheet" type="text/css" href="/css/text.css" media="screen" />
+				<link rel="stylesheet" type="text/css" href="/css/grid.css" media="screen" />
+				<link rel="stylesheet/less" href="#{@id}/style.less" type="text/css" media="screen" charset="utf-8" />
+				<script type="text/javascript" src="/head.js"></script>
+				<script type="text/javascript" src="/less-1.1.4.js"></script>
+				<script src="/nowjs/now.js"></script>
+			</head>
+			<body>
+				<script type="text/javascript">
+					head.js(
+						"/lib.js",
+						"/site.js",
+						function() {
+							LIB.load_poem();
+						}
+					);
+				</script>
+			</body>
+		</html>
+		"""
+		
+#################################
+
+class Element
+	el: 'div'
+	opts: 0
+	template: ''
+	(el, opts) ->
+		#console.log "Element", el, opts
+		@el = el if el
+		if opts
+			@opts = opts
+			@style = opts.style?
+			@template = delete opts.template
+			
+		c = 0
+		for k, v in opts
+			if k? then c++
+			
+		if c is 0
+			@opts = 0
+		
+	toString: ->
+		ret = "<#{@el}"
+		if @opts is not 0
+			#ret += ' '
+			for id, val in @opts
+				ret += " #{id}=\"#{val.replace_all '"', '\\"'}\""
+			
+		ret += if @template then ">#{@template}</#{@el}>" else '/>'
+		ret
+
+#################################
+
+class Panel extends Element
+	(opts) ->
+		super 'panel', opts
+		
+	toString: ->
+		super @template
+
+#################################
+
+class Window extends Element
+	(opts = {}) ->
+		if !opts.id
+			throw new Error 'a window must have an id'
+		else
+			opts.id = "panel-#{opts.id}"
+		
+		if !opts.default
+			throw new Error 'a window must have a default panel'
+		
+		super opts.el || 'window', opts
+
+	toString: ->
+		super @template
+
+#################################
+
+class Section extends Element
+	(opts) ->
+		super opts.el, opts
+
+	toString: ->
+		super @template
+
+#################################
+
+class Poem extends Screen
+	panels: {}
+	default: 'home'
+	default_lib: {
+		Screen: Screen
+		Element: Element
+		Panel: Panel
+		Poem: Poem
+	}
+	allowed_modules: ['sys', 'fs', 'path', 'crypto', 'assert', 'buffer']
+	(client, path) ->
+		@client = client
+		@path = path
+		Fs.readFile path, 'utf8', (err, poem_file) ~>
+			src = whiskey.compile poem_file, {
+				filename: @path
+				bare: true
+			}
+			
+			ctx = {
+				console: console
+			}
+			
+			for name, lib in @default_lib
+				ctx[name] = lib
+			
+			Vm.runInNewContext src, ctx, @path
+			
+			for name, obj in ctx
+				if childOf obj, Panel
+					obj = new obj
+					@panels[name] = obj
+				else if childOf obj, Poem
+					o = new obj
+					console.log "#{name} is a poem"
+					for k, v in o
+						@[k] = v;
+			
+			@client.templates = {}
+			@render_templates()
+			@client.func = (id, opts, callback) ->
+				console.log 'testing...'
+				callback "testing..."
+	
+	parse_template: (txt) ->
+		parser = sax.parser true
+		depth = 0
+		scopes = [[]];
+		add_scope = (txt, opts) ->
+			if !txt then return
+			scopes[depth].push txt
+			last = scopes[depth].length-1
+			if opts and opts.code
+				if scopes[depth].code_start >= 0
+					scopes[depth].code_blocks.push last
+					scopes[depth].code_end = last
+				else
+					scopes[depth].code_blocks = [last]
+					scopes[depth].code_start = last
+
+		parser.onopentag = (node) ->
+			if typeof scopes[depth+1] is not \array
+				scopes[depth+1] = []
+			
+			# OPTIMIZE: use numbers to cut down on data / memory size...
+			# OPTIMIZE: find the most common used elements, and make a lookup variable.
+			attributes = []
+			for k, v in node.attributes
+				switch k
+				case 'class' then k = 'c'
+				case 'for' then k = 'f'
+				attributes.push "#{k}:"+if isNaN v*1 then "'#{v.trim!.replace_all '\'', '\\\''}'" else v
+			
+			add_scope "cE('#{node.name}',"+if attributes.length then "{#{attributes.join ','}}" else 0
+			depth++
+
+		parser.onclosetag = (node) ->
+			depth--
+			prev = scopes[depth][*-1]
+			scope = scopes[depth+1]
+			if scope.length
+				if scope.code_start >= 0
+					if isNaN scope.code_end
+						throw new Error "unterminated code scope"
+					else
+						code_start = scope.code_start
+						code_end = scope.code_end
+						scope[code_start] = "function(){return function(){var o=[];#{scope[code_start]}"
+						code_scope = scope.splice code_start+1, code_end-code_start
+						for v, i of code_scope
+							if i is code_scope.length-1
+								scope[code_start] += "#{v};return o}}()"
+							else if scope.code_blocks.indexOf(i) is not -1
+								scope[code_start] += "o.push(#{v});"
+							else
+								scope[code_start] += v
+				prev += ','+ scope.join(',')
+			else if prev.substr 0, 3 is "cE(" and prev.substr -2 is ',0'
+				prev = prev.substr 0, prev.length-2
+			
+			scopes[depth][*-1] = prev + ')'
+			scopes[depth+1] = []
+
+		parser.ontext = (text) ->
+			if isNaN text*1
+				#OPTIMIZE: count the number of instances of ' and " and use the best fit (small size saving)
+				add_scope '"'+text.toString!.trim!.replace_all("'", "\\'")+'"'
+			else
+				add_scope text.trim!
+
+		parser.onprocessinginstruction = (node) ->
+			#console.log 'code', node
+			switch node.name
+			case '=' then add_scope node.body.trim!
+			default then add_scope node.body.trim!, {code: 1}
+
+		parser.write txt
+		console.log "xml: #{txt.length} func: #{scopes[0][0].length}"
+		scopes[0][0]
+	
+	render_templates: ->
+		ret = {}
+		#console.log "native: ", @template
+		@client.templates["screen"] = @parse_template @template
+		for id, panel in @panels
+			@client.templates[id] = @parse_template panel.toString()
+		ret
+	
+	style: ->
+		@styles + super.style
+
+	
+Poem.create = (opts, connection) ->
+	id = opts.id || "test"
+	dir = "poems/#{id}"
+	Fs.mkdir dir, '777', (err) ->
+		if err
+			connection.error err
+		else
+			Fs.writeFile "#{dir}/#{id}.coffee", """
+			# test file
+			"""
+
+playbox = new Playbox 1157
