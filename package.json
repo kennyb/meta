@@ -18,6 +18,7 @@
       , "now": "0.7.4"
       , "coffee-script": "1.1.2"
       , "coco": "0.6.2"
+      , "uglify-js": "1.0.7"
     }
   , "devDependencies": {
         "expresso": "0.7.7"

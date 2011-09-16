@@ -74,6 +74,9 @@ nowjs = require 'now'
 #CoffeeScript = require 'coffee-script'
 whiskey = require './node_modules/coco'
 sax = require 'sax'
+jsp = require "uglify-js" .parser
+pro = require "uglify-js" .uglify
+
 
 
 Mixin = (target, source) ->
@@ -361,6 +364,12 @@ class Poem extends Screen
 				bare: true
 			}
 			
+			ast = jsp.parse src  # parse code and get the initial AST
+			ast = pro.ast_mangle ast   # get a new AST with mangled names
+			ast = pro.ast_squeeze ast  # get an AST with compression optimizations
+			#src = pro.gen_code ast
+			#console.log src
+			
 			ctx = {
 				console: console
 			}
@@ -403,9 +412,6 @@ class Poem extends Screen
 					scopes[depth].code_start = last
 
 		parser.onopentag = (node) ->
-			if typeof scopes[depth+1] is not \array
-				scopes[depth+1] = []
-			
 			# OPTIMIZE: use numbers to cut down on data / memory size...
 			# OPTIMIZE: find the most common used elements, and make a lookup variable.
 			attributes = []
@@ -413,10 +419,11 @@ class Poem extends Screen
 				switch k
 				case 'class' then k = 'c'
 				case 'for' then k = 'f'
-				attributes.push "#{k}:"+if isNaN v*1 then "'#{v.trim!.replace_all '\'', '\\\''}'" else v
+				attributes.push "#{k}:"+if isNaN v*1 then "\"#{v.trim!.replace_all '"', '\\"'}\"" else v
 			
 			add_scope "cE('#{node.name}',"+if attributes.length then "{#{attributes.join ','}}" else 0
-			depth++
+			if typeof scopes[++depth] is not \array
+				scopes[depth] = []
 
 		parser.onclosetag = (node) ->
 			depth--
@@ -429,16 +436,17 @@ class Poem extends Screen
 					else
 						code_start = scope.code_start
 						code_end = scope.code_end
-						scope[code_start] = "function(){return function(){var o=[];#{scope[code_start]}"
+						scope[code_start] = "function(){var o=[];#{scope[code_start]}"
 						code_scope = scope.splice code_start+1, code_end-code_start
 						for v, i of code_scope
 							if i is code_scope.length-1
-								scope[code_start] += "#{v};return o}}()"
+								scope[code_start] += "#{v};return o}()"
 							else if scope.code_blocks.indexOf(i) is not -1
 								scope[code_start] += "o.push(#{v});"
 							else
 								scope[code_start] += v
-				prev += ','+ scope.join(',')
+				s = ','+ scope.join(',')
+				prev += s
 			else if prev.substr 0, 3 is "cE(" and prev.substr -2 is ',0'
 				prev = prev.substr 0, prev.length-2
 			
@@ -447,8 +455,7 @@ class Poem extends Screen
 
 		parser.ontext = (text) ->
 			if isNaN text*1
-				#OPTIMIZE: count the number of instances of ' and " and use the best fit (small size saving)
-				add_scope '"'+text.toString!.trim!.replace_all("'", "\\'")+'"'
+				add_scope '"'+text.toString!.trim!.replace_all('"', '\\"')+'"'
 			else
 				add_scope text.trim!
 
@@ -459,12 +466,16 @@ class Poem extends Screen
 			default then add_scope node.body.trim!, {code: 1}
 
 		parser.write txt
-		console.log "xml: #{txt.length} func: #{scopes[0][0].length}"
-		scopes[0][0]
+		
+		ast = jsp.parse scopes[0][0] # parse code and get the initial AST
+		ast = pro.ast_mangle ast     # get a new AST with mangled names
+		ast = pro.ast_squeeze ast    # get an AST with compression optimizations
+		src = pro.gen_code ast
+		console.log "xml: #{txt.length} func: #{scopes[0][0].length} final: #{src.length}"
+		src
 	
 	render_templates: ->
 		ret = {}
-		#console.log "native: ", @template
 		@client.templates["screen"] = @parse_template @template
 		for id, panel in @panels
 			@client.templates[id] = @parse_template panel.toString()
