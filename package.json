@@ -15,6 +15,7 @@
     }
   , "dependencies": {
         "mime": "1.2.2"
+      , "sax": "0.2.5"
       , "now": "0.7.4"
       , "coffee-script": "1.1.2"
       , "coco": "0.6.2"

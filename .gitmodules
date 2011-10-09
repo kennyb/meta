@@ -1,0 +1,6 @@
+[submodule "support/lazyload"]
+	path = support/lazyload
+	url = git://github.com/rgrove/lazyload.git
+[submodule "support/less-960"]
+	path = support/less-960
+	url = git://github.com/DavidTurner/960-LESS.git
