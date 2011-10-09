@@ -1,0 +1,65 @@
+CURRENT
+-------
+compiling the client lib files from coco to js
+make a dir structure for the namespaces poem/jaja
+make a command which will load the source editor in a popup window
+
+
+integrate ace into meta
+-----------------------
+load the code editor into the meta system
+add warnings, lint, etc
+add compile errors
+use jsdav to modify the local filesystem (for modifying local files)
+add commands to create/remove new projects in git (automatically)
+
+<script src=http://ajaxorg.github.com/ace/build/src/ace.js></script
+><script src=../extras/mode-coco.js></script
+><script>!function(){
+  self.editor  = ace.edit('editor')
+  self.session = editor.getSession()
+  editor.setShowInvisibles(true)
+  session.setMode(new (require('ace/mode/coco')).Mode)
+  session.setTabSize(2)
+  try { var code = localStorage.code } catch(_){ return }
+  if(code) session.setValue(code)
+  setInterval(self.onunload = function(){
+    localStorage.code = session.getValue()
+  }, 1e4)
+}()</script>
+
+
+
+
+integrate apf into meta
+-----------------------
+
+
+meta rebuild
+------------
+load templates automatically on meta environment load
+
+
+brainwave poem (meta)
+----------------------------
+create a plugin interface to meta which will visualize a list of inputs and outputs
+
+
+node-sdl output visualizer
+-------------------
+https://github.com/creationix/node-sdl
+add node-sdl as an output setting for brainwave stuff
+status
+display
+watch 0
+
+
+binaural beats
+--------------
+add another output of binaural beats to sound
+
+
+BONUS
+-----
+on the ace branch, integrate coco bindings.
+make a sdl surface out of this for later adding to the interface: http://uazu.net/bwview/
